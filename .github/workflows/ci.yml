@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "gcc, c++20", os: ubuntu-latest, cxx: g++, std: 20 }
+          - { name: "gcc, c++23", os: ubuntu-latest, cxx: g++, std: 23 }
+          - { name: "clang, c++20", os: ubuntu-latest, cxx: clang++, std: 20 }
+          - { name: "clang, c++23", os: ubuntu-latest, cxx: clang++, std: 23 }
+          - { name: "msvc, c++20", os: windows-latest, cxx: cl, std: 20 }
+          - { name: "apple clang, c++20", os: macos-latest, cxx: clang++, std: 20 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: configure
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+          -DCMAKE_CXX_STANDARD=${{ matrix.std }}
+          -DCMAKE_CXX_STANDARD_REQUIRED=ON
+
+      - name: build
+        run: cmake --build build --config Release
+
+      - name: test
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+  install:
+    name: install and consume
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install
+        run: |
+          cmake -B build -DCMAKE_INSTALL_PREFIX=$PWD/prefix -DSFSM_BUILD_TESTS=OFF
+          cmake --install build
+
+      - name: consume with find_package
+        run: |
+          mkdir -p consumer
+          cat > consumer/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.23)
+          project(consumer LANGUAGES CXX)
+          find_package(sfsm REQUIRED)
+          add_executable(consumer main.cpp)
+          target_link_libraries(consumer PRIVATE sfsm::sfsm)
+          EOF
+          cat > consumer/main.cpp <<'EOF'
+          #include <sfsm/sfsm.hpp>
+          struct idle final {};
+          struct running final {};
+          struct go final {};
+          int main()
+          {
+            auto machine = sfsm::sfsm(
+              sfsm::states<idle, running>{idle{}, running{}},
+              sfsm::make_transition<idle, go, running>());
+            return machine.process_event(go{}) ? 0 : 1;
+          }
+          EOF
+          cmake -S consumer -B consumer/build -DCMAKE_PREFIX_PATH=$PWD/prefix
+          cmake --build consumer/build
+          ./consumer/build/consumer
