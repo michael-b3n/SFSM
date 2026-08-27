@@ -15,6 +15,14 @@ option(SFSM_BUILD_TESTS "Build the SFSM tests" ${PROJECT_IS_TOP_LEVEL})
 option(SFSM_INSTALL "Generate the SFSM install rules" ${PROJECT_IS_TOP_LEVEL})
 
 #
+# The compile commands are what clangd and the rest of the tooling read to learn how a file is
+# built. CMake only writes them when it is asked to, and only a top level build has a reason to.
+#
+if(PROJECT_IS_TOP_LEVEL)
+  set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+endif()
+
+#
 # The default install prefix of CMake is a system location and needs the rights that come with it.
 # A library that is installed to look at it does not, so an own build stays inside the build tree.
 # Anything given explicitly wins, be it -DCMAKE_INSTALL_PREFIX at configure time or --prefix at

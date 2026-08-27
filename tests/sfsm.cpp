@@ -160,14 +160,13 @@ TEST_CASE("self transition", "[sfsm]")
   auto machine = sfsm::sfsm(
     states_type{running{}},
     // Source and target are the same object here, so the action sees its progress twice.
-    sfsm::make_transition<running, tick, running>(
-      sfsm::always,
+    sfsm::make_transition<running, tick, running>(sfsm::action(
       [&counter](running& source, running& target)
       {
         ++source.progress;
         counter += target.progress;
       }
-    )
+    ))
   );
 
   static_assert(decltype(machine)::state_count == 1);
@@ -190,24 +189,21 @@ TEST_CASE("refuses a nested transition", "[sfsm]")
   std::function<void()> follow_up;
   auto machine = sfsm::sfsm(
     states_type{idle{}, running{}, stopping{}},
-    sfsm::make_transition<idle, start, running>(sfsm::always, [&follow_up]() { follow_up(); }),
+    sfsm::make_transition<idle, start, running>(sfsm::action([&follow_up]() { follow_up(); })),
     sfsm::make_transition<running, abort, stopping>()
   );
   follow_up = [&machine]()
   {
-    REQUIRE(machine.is_transitioning());
     // The running transition sets the state when it completes, so the nested event is refused.
     REQUIRE(!machine.process_event(abort{}));
     REQUIRE(!machine.reset_to_state<stopping>());
 
-    // A copy does not inherit the running transition of its source.
-    const auto copy = machine;
-    REQUIRE(!copy.is_transitioning());
+    // A copy does not inherit the running transition of its source, so it accepts the reset.
+    auto copy = machine;
+    REQUIRE(copy.reset_to_state<stopping>());
   };
 
-  REQUIRE(!machine.is_transitioning());
   REQUIRE(machine.process_event(start{}));
-  REQUIRE(!machine.is_transitioning());
   REQUIRE(machine.is_state<running>());
 
   // The machine is usable again, the refused event only had to be dispatched after the transition.
@@ -221,14 +217,13 @@ TEST_CASE("survives a throwing action", "[sfsm]")
 
   auto machine = sfsm::sfsm(
     states_type{idle{}, running{}},
-    sfsm::make_transition<idle, start, running>(sfsm::always, [](idle&) { throw std::runtime_error{"action"}; }),
+    sfsm::make_transition<idle, start, running>(sfsm::action([](idle&) { throw std::runtime_error{"action"}; })),
     sfsm::make_transition<idle, kick, running>()
   );
 
   REQUIRE_THROWS_AS(machine.process_event(start{}), std::runtime_error);
 
   // The transition never completed, so the machine stayed where it was and dispatches again.
-  REQUIRE(!machine.is_transitioning());
   REQUIRE(machine.is_state<idle>());
   REQUIRE(machine.process_event(kick{}));
   REQUIRE(machine.is_state<running>());
@@ -241,7 +236,7 @@ TEST_CASE("survives a throwing guard", "[sfsm]")
   auto throwing = true;
   auto machine = sfsm::sfsm(
     states_type{idle{}, running{}},
-    sfsm::make_transition<idle, start, running>(
+    sfsm::make_transition<idle, start, running>(sfsm::guard(
       [&throwing]()
       {
         if(throwing)
@@ -250,11 +245,11 @@ TEST_CASE("survives a throwing guard", "[sfsm]")
         }
         return true;
       }
-    )
+    ))
   );
 
   REQUIRE_THROWS_AS(machine.process_event(start{}), std::runtime_error);
-  REQUIRE(!machine.is_transitioning());
+  REQUIRE(machine.is_state<idle>());
 
   throwing = false;
   REQUIRE(machine.process_event(start{}));
@@ -267,9 +262,8 @@ TEST_CASE("copy and move follow the table", "[sfsm]")
   // members of the machine are constrained, otherwise it would claim to be copyable here.
   auto unique = sfsm::sfsm(
     sfsm::states<idle, running>{idle{}, running{}},
-    sfsm::make_transition<idle, start, running>(
-      sfsm::always, [owned = std::make_unique<int>(1)](running& target) { target.budget = *owned; }
-    )
+    sfsm::make_transition<idle, start, running>(sfsm::action([owned = std::make_unique<int>(1)](running& target)
+                                                             { target.budget = *owned; }))
   );
   static_assert(!std::is_copy_constructible_v<decltype(unique)>);
   static_assert(std::is_move_constructible_v<decltype(unique)>);
@@ -286,7 +280,6 @@ TEST_CASE("copies carry the state data", "[sfsm]")
   REQUIRE(machine.process_event(start{.budget = 3}));
 
   auto copy = machine;
-  REQUIRE(!copy.is_transitioning());
   REQUIRE(copy.is_state<running>());
 
   // The states came along, the copy continues the run of the original on its own data.

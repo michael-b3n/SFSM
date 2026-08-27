@@ -58,31 +58,34 @@ constexpr auto make_process()
     process_states_type{idle{}, running{}, stopping{}},
     // The target has to be free and the run needs a budget, otherwise the next row takes over.
     sfsm::make_transition<idle, start, running>(
-      [](const start& event, const running& target) { return target.progress == 0 && event.budget > 0; },
-      [](idle&, const start& event, running& target) { target.budget = event.budget; }
+      sfsm::guard([](const start& event, const running& target) { return target.progress == 0 && event.budget > 0; }),
+      sfsm::action([](idle&, const start& event, running& target) { target.budget = event.budget; })
     ),
-    sfsm::make_transition<idle, start, idle>(sfsm::always, [](idle& source) { ++source.refused; }),
+    sfsm::make_transition<idle, start, idle>(sfsm::action([](idle& source) { ++source.refused; })),
     // Self transition, so source and target are the same object.
     sfsm::make_transition<running, tick, running>(
-      [](const running& source) { return source.progress < source.budget; }, [](running& source) { ++source.progress; }
+      // The action may be written before the guard, the wrappers say which is which.
+      sfsm::action([](running& source) { ++source.progress; }),
+      sfsm::guard([](const running& source) { return source.progress < source.budget; })
     ),
     // Hands the progress over to the target and leaves the source free for the next run.
-    sfsm::make_transition<running, abort, stopping>(
-      sfsm::always,
+    sfsm::make_transition<running, abort, stopping>(sfsm::action(
       [](running& source, stopping& target)
       {
         target.pending = source.progress;
         source.progress = 0;
         source.budget = 0;
       }
-    ),
+    )),
     sfsm::make_transition<stopping, stopped, idle>(
-      [](const stopping& source) { return source.pending >= 0; },
-      [](stopping& source, idle& target)
-      {
-        source.pending = 0;
-        ++target.runs;
-      }
+      sfsm::guard([](const stopping& source) { return source.pending >= 0; }),
+      sfsm::action(
+        [](stopping& source, idle& target)
+        {
+          source.pending = 0;
+          ++target.runs;
+        }
+      )
     )
   );
 }

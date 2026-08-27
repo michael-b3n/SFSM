@@ -1,0 +1,7 @@
+#
+# The standard itself is not set here on purpose. It comes from the compile commands, which the
+# test targets carry a -std flag in, so clangd reads a file exactly the way the build compiles it.
+# Adding a -std here would override that flag instead and could drift away from the build.
+#
+CompileFlags:
+  CompilationDatabase: build
