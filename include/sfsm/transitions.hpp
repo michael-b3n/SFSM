@@ -57,6 +57,22 @@ template<event_like Event, row_like Row>
 }
 
 ///
+/// Checks if a row is a transition leaving a state and reacting to an event.
+///
+template<state_like State, event_like Event, row_like Row>
+[[nodiscard]] constexpr auto row_handles_event() -> bool
+{
+  if constexpr(transition_like<Row>)
+  {
+    return std::is_same_v<typename Row::source_state_type, State> && std::is_same_v<typename Row::event_type, Event>;
+  }
+  else
+  {
+    return false;
+  }
+}
+
+///
 /// Counts the rows that are the hook of the same role and state as Row, the row itself included.
 /// A transition is not a hook and counts as zero.
 ///
@@ -194,6 +210,18 @@ public: // Static
   [[nodiscard]] static constexpr auto handles_event() -> bool
   {
     return (detail::row_handles_event<Event, Rows>() || ...);
+  }
+
+  ///
+  /// Checks if a transition leaving a state reacts to an event. Says nothing about the guards.
+  /// \tparam State source state of the transition
+  /// \tparam Event generic event type
+  /// \return true, if a transition leaves State and is triggered by Event, false otherwise
+  ///
+  template<state_like State, event_like Event>
+  [[nodiscard]] static constexpr auto handles_event() -> bool
+  {
+    return (detail::row_handles_event<State, Event, Rows>() || ...);
   }
 
 public: // Constructor

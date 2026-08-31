@@ -1,7 +1,7 @@
 #
 # Run it over the tests, which instantiate the templates, and let it report on the headers:
 #
-#   clang-tidy -p build --header-filter='include[/\\]sfsm[/\\].*' tests/sfsm.cpp tests/meta.cpp tests/hooks.cpp
+#   clang-tidy -p build --header-filter='include[/\\]sfsm[/\\].*' tests/sfsm.cpp tests/meta.cpp tests/hooks.cpp tests/queue.cpp
 #
 # The disabled checks below are conventions of this library that the checks disagree with, not
 # findings that were waved away. Each one says why.

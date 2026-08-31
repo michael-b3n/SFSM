@@ -38,6 +38,28 @@ struct are_unique<T, T1, Ts...> final
   static constexpr bool value = count_type<T, T1, Ts...>::value == 0 && are_unique<T1, Ts...>::value;
 };
 
+// Helper type list types are collected in. A list is what a walk over types starts from and adds
+// to, and it is not the type the result is asked for: a variant, for one, must not be instantiated
+// without alternatives, while an empty list is a list.
+template<typename... Ts>
+struct type_list final
+{};
+
+// Helper type trait to append a type to a list, unless the list already holds it or the type is
+// void, which is what something with no type to contribute answers with.
+template<typename List, typename T>
+struct list_add;
+template<typename... Ts>
+struct list_add<type_list<Ts...>, void> final
+{
+  using type = type_list<Ts...>;
+};
+template<typename... Ts, typename T>
+struct list_add<type_list<Ts...>, T> final
+{
+  using type = std::conditional_t<(std::is_same_v<T, Ts> || ...), type_list<Ts...>, type_list<Ts..., T>>;
+};
+
 // Helper type trait to find the index of a type within a tuple like type.
 template<typename T, typename Ti>
 struct type_index;

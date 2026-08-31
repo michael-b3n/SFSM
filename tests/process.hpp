@@ -48,13 +48,16 @@ struct kick final
 using process_states_type = sfsm::states<idle, running, stopping>;
 
 ///
-/// A process running idle -> running -> stopping -> idle. It only starts if the running state is
-/// free, which is a question about the target, not about the source. Guards and actions cover
-/// every subsequence of the canonical source, event, target order.
+/// Rows of a process running idle -> running -> stopping -> idle. It only starts if the running
+/// state is free, which is a question about the target, not about the source. Guards and actions
+/// cover every subsequence of the canonical source, event, target order.
 ///
-constexpr auto make_process()
+/// The table is handed out on its own so that the same process can be built under either dispatch
+/// policy without the rows being written down twice.
+///
+constexpr auto make_process_transitions()
 {
-  return sfsm::sfsm(
+  return sfsm::transitions(
     process_states_type{idle{}, running{}, stopping{}},
     // The target has to be free and the run needs a budget, otherwise the next row takes over.
     sfsm::make_transition<idle, start, running>(
@@ -88,6 +91,25 @@ constexpr auto make_process()
       )
     )
   );
+}
+
+///
+/// \see make_process_transitions
+///
+constexpr auto make_process()
+{
+  return sfsm::sfsm(make_process_transitions());
+}
+
+///
+/// The same process as a machine that queues an event dispatched from a guard, an action or a
+/// hook instead of refusing it. The queue is one slot in the machine and allocates nothing, so
+/// this one runs at compile time like the machine above.
+/// \see make_process_transitions
+///
+constexpr auto make_queued_process()
+{
+  return sfsm::make_sfsm<sfsm::queue_one>(make_process_transitions());
 }
 
 } // namespace sfsm_test
