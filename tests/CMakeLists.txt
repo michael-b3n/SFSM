@@ -52,3 +52,5 @@ endforeach()
 add_library(sfsm_self_contained OBJECT ${SFSM_SELF_CONTAINED_FILES})
 target_link_libraries(sfsm_self_contained PRIVATE sfsm::sfsm)
 target_compile_options(sfsm_self_contained PRIVATE ${SFSM_TEST_WARNINGS})
+
+set_target_properties(sfsm_test sfsm_self_contained PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)

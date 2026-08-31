@@ -1,0 +1,63 @@
+#
+# Run it over the tests, which instantiate the templates, and let it report on the headers:
+#
+#   clang-tidy -p build --header-filter='include[/\\]sfsm[/\\].*' tests/sfsm.cpp tests/meta.cpp tests/hooks.cpp tests/queue.cpp
+#
+# The disabled checks below are conventions of this library that the checks disagree with, not
+# findings that were waved away. Each one says why.
+#
+Checks: >
+  bugprone-*,
+  clang-analyzer-*,
+  cppcoreguidelines-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -modernize-use-trailing-return-type,
+  -readability-redundant-access-specifiers,
+  -readability-redundant-typename,
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity,
+  -readability-named-parameter,
+  -portability-avoid-pragma-once,
+  -performance-enum-size,
+  -cppcoreguidelines-avoid-const-or-ref-data-members,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-magic-numbers,
+  -misc-include-cleaner,
+  -modernize-avoid-c-style-cast
+
+WarningsAsErrors: ''
+HeaderFilterRegex: 'include[/\\]sfsm[/\\].*'
+FormatStyle: file
+
+#
+# modernize-use-trailing-return-type    the library already writes them, the hits are in the
+#                                       function bodies Catch2 generates from TEST_CASE
+# readability-redundant-access-specifiers  the repeated "public: // Section" labels are the layout
+#                                       of every class here, they are section headings
+# readability-redundant-typename        C++20 lets typename be left out in these places, spelling
+#                                       it out is the house style
+# readability-named-parameter           the unnamed std::index_sequence tag parameters carry a type
+#                                       and no value
+# portability-avoid-pragma-once         every header uses it
+# performance-enum-size                 callable_role is a template argument and never stored, so
+#                                       a narrower base type buys nothing
+# cppcoreguidelines-avoid-const-or-ref-data-members  the scope guard holds its machine by reference
+#                                       on purpose, the rest of the hits are lambdas in the tests
+#                                       that capture by reference
+# cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers  a test states the value it
+#                                       expects as a literal, which is the point of writing it
+# misc-include-cleaner                  reports on Catch2 and the standard library, not on SFSM
+# modernize-avoid-c-style-cast          fires on enum non type template arguments, pointing at a
+#                                       column that holds the argument name and no cast at all.
+#                                       Reproduced on clang-tidy 22 with nothing but
+#                                         enum class role { a, b };
+#                                         template<role R, typename T> inline constexpr bool m = false;
+#                                         template<role R, typename... Ts>
+#                                         inline constexpr std::size_t n = ((m<R, Ts> ? 1 : 0) + ... + 0);
+#                                       The same code with an int template parameter is not flagged,
+#                                       and callable_role is used as a template argument throughout
+#

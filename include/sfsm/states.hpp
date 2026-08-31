@@ -18,10 +18,10 @@ template<state_like... States>
 class states
 {
   static_assert(sizeof...(States) > 0, "at least one state must be available");
-  static_assert(detail::are_unique<std::remove_cvref_t<States>...>::value, "all states must be unique");
+  static_assert(detail::are_unique<States...>::value, "all states must be unique");
 
   // Typedefs
-  using state_tuple_type = std::tuple<std::remove_cvref_t<States>...>;
+  using state_tuple_type = std::tuple<States...>;
 
   // Variables
   state_tuple_type states_;
@@ -33,8 +33,7 @@ public: // Typedefs
 public: // Constants
   static constexpr std::size_t state_count = sizeof...(States);
   template<state_like State>
-  static constexpr auto is_state_contained =
-    detail::count_type<std::remove_cvref_t<State>, std::remove_cvref_t<States>...>::value == 1;
+  static constexpr auto is_state_contained = detail::count_type<State, States...>::value == 1;
 
 public: // Static
   ///
@@ -46,25 +45,25 @@ public: // Static
   [[nodiscard]] static constexpr auto state_index_of() -> std::size_t
     requires(is_state_contained<State>)
   {
-    return detail::type_index<state_tuple_type, std::remove_cvref_t<State>>::index;
+    return detail::type_index<state_tuple_type, State>::index;
   }
 
 public: // Constructor
-  constexpr states(std::remove_cvref_t<States>... objects)
+  constexpr states(States... objects)
     : states_{std::move(objects)...}
   {
   }
 
 public: // Accessors
   template<std::size_t I>
-  constexpr auto state() -> std::reference_wrapper<state_at<I>>
+  [[nodiscard]] constexpr auto state() -> std::reference_wrapper<state_at<I>>
     requires(I < state_count)
   {
     return std::ref(std::get<I>(states_));
   }
 
   template<std::size_t I>
-  constexpr auto state() const -> std::reference_wrapper<const state_at<I>>
+  [[nodiscard]] constexpr auto state() const -> std::reference_wrapper<const state_at<I>>
     requires(I < state_count)
   {
     return std::cref(std::get<I>(states_));
@@ -72,7 +71,7 @@ public: // Accessors
 };
 
 template<state_like... States>
-states(States...) -> states<std::remove_cvref_t<States>...>;
+states(States...) -> states<States...>;
 // clang-format off
 template<typename S>
 struct is_states final : public std::false_type {};

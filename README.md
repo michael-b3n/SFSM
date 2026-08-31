@@ -2,16 +2,19 @@
 
 A simple finite state machine for C++20, header only.
 
-Unlike a label based machine the states carry data. The transition table owns one object per state
-type and hands the current one to the guards and actions, so a run keeps its data in the state it
-belongs to instead of in the machine.
+Unlike a label based machine the states carry data. The machine owns one object per state and
+hands the current one to the guards, actions and hooks.
+
+## Example
 
 ```cpp
 #include <sfsm/sfsm.hpp>
 
+// States, each one holds its own data.
 struct idle final { int runs{0}; };
-struct running final { int progress{0}; int budget{0}; };
+struct running final { int progress{0}; };
 
+// Events.
 struct start final { int budget{0}; };
 struct tick final {};
 struct stop final {};
@@ -19,40 +22,67 @@ struct stop final {};
 auto machine = sfsm::sfsm(
   sfsm::states<idle, running>{idle{}, running{}},
 
-  // The target has to be free and the run needs a budget.
+  // A guard decides whether the transition may fire, an action runs when it does.
   sfsm::make_transition<idle, start, running>(
-    [](const start& event, const running& target) { return target.progress == 0 && event.budget > 0; },
-    [](const start& event, running& target) { target.budget = event.budget; }),
+    sfsm::guard([](const start& event) { return event.budget > 0; })),
 
   // A self transition, source and target are the same object.
   sfsm::make_transition<running, tick, running>(
-    [](const running& source) { return source.progress < source.budget; },
-    [](running& source) { ++source.progress; }),
+    sfsm::action([](running& source) { ++source.progress; })),
 
+  // Without a guard, so it always fires.
   sfsm::make_transition<running, stop, idle>(
-    sfsm::always,
-    [](running& source, idle& target) { source.progress = 0; ++target.runs; }));
+    sfsm::action([](running& source) { source.progress = 0; })),
 
+  // Runs whenever a transition enters idle, not when the machine starts there.
+  sfsm::on_entry<idle>([](idle& state) { ++state.runs; }));
+
+machine.process_event(start{});             // false, the guard refused
 machine.process_event(start{.budget = 2});  // true, now in running
 machine.process_event(tick{});              // true, progress is 1
 machine.process_event(stop{});              // true, back in idle
 machine.state<idle>().runs;                 // 1
 ```
 
-Everything is `constexpr`, so a whole machine run can happen at compile time.
+A machine is written as its states followed by its rows. A row is either a transition or a hook.
+Transitions are tried in the order they are listed, and the machine starts in the source state of
+the first one. `process_event` answers whether the event ran. Everything is `constexpr`, so a whole
+run can happen at compile time.
+
+Guards and actions declare the arguments they need in the order source state, event, target state,
+and may leave out any of them. A guard sees both states as `const` and returns `bool`, an action may
+modify them and returns `void`. A transition that fires runs the exit hook of its source state, then
+its action, then the entry hook of its target state.
+
+## Nested events
+
+A transition is never interrupted, so an event dispatched from a guard, an action or a hook cannot
+run at that point. The queue policy, the second template argument of `sfsm`, decides what becomes of
+it. The default `sfsm::no_queue` refuses it. `sfsm::queue_one` takes it over once the transition is
+settled and runs it as soon as that transition has completed:
+
+```cpp
+auto machine = sfsm::make_sfsm<sfsm::queue_one>(
+  sfsm::states<idle, running>{idle{}, running{}},
+  sfsm::make_transition<idle, start, running>(),
+  sfsm::make_transition<running, stop, idle>());
+```
+
+The queue holds one event by value, with neither type erasure nor an allocation, so a machine that
+queues still runs at compile time. A machine given `no_queue` holds nothing at all for it.
+
+## Behaviour
+
+- **Threads.** `sfsm` is a value with no synchronization and follows the contract of the standard
+  containers: concurrent readers are fine, a writer needs exclusive access.
+- **Exceptions.** If a guard, an exit hook or an action throws, the machine stays in the source
+  state; if an entry hook throws, it already is in the target state. Either way it dispatches on.
+- **Types.** Everything is stored by value, so every state, event and callable type is spelled
+  unqualified: `machine.state<idle>()`, never `machine.state<const idle&>()`.
 
 ## Requirements
 
-C++20 and a standard library, nothing else. The headers are free of exceptions and allocations of
-their own, so `-fno-exceptions` builds are fine, and none of them needs a threading capable
-standard library.
-
-## The name
-
-The machine is called `sfsm::sfsm`, so the namespace and the class share a name. That is fine
-everywhere except after a using directive: `using namespace sfsm;` brings the class into the scope
-the namespace itself lives in, and from there on the plain name `sfsm` is ambiguous. Qualify the
-names instead of importing the namespace, the tests do the same.
+C++20 and a standard library, nothing else. No header throws, catches or synchronizes on its own.
 
 ## Using it
 
@@ -68,90 +98,16 @@ FetchContent_MakeAvailable(sfsm)
 target_link_libraries(your_target PRIVATE sfsm::sfsm)
 ```
 
-With a checkout next to your project:
-
-```cmake
-add_subdirectory(external/SFSM)
-target_link_libraries(your_target PRIVATE sfsm::sfsm)
-```
-
-Installed:
+With a checkout next to your project, `add_subdirectory(external/SFSM)` and the same
+`target_link_libraries` do the job. To install instead:
 
 ```bash
 cmake -B build -DSFSM_BUILD_TESTS=OFF
 cmake --install build
 ```
 
-That lands in `build/install`, which is the default prefix of a top level SFSM build. The usual
-prefix of CMake is a system directory and installing into it needs the rights that come with it,
-which a header only library has no reason to ask for. Pick another one whenever you want, either
-at configure time or at install time:
-
-```bash
-cmake -B build -DSFSM_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=/your/prefix
-cmake --install build --prefix /your/prefix
-```
-
-Point a consumer at the prefix with `CMAKE_PREFIX_PATH` and find it:
-
-```cmake
-find_package(sfsm REQUIRED)
-target_link_libraries(your_target PRIVATE sfsm::sfsm)
-```
-
-Tests and install rules only appear when SFSM is the top level project, `SFSM_BUILD_TESTS` and
-`SFSM_INSTALL` override that. The default prefix is only chosen on the first configure run of a
-build directory, so an existing one keeps whatever it was configured with.
-
-## Headers
-
-| Header | Content |
-| --- | --- |
-| `sfsm/sfsm.hpp` | `sfsm`, the state machine, and the umbrella over everything below |
-| `sfsm/meta.hpp` | the concepts `state_like`, `event_like`, `callable_like`, `guard_like`, `action_like` and the type traits behind them |
-| `sfsm/states.hpp` | `states`, the states of a machine |
-| `sfsm/transition.hpp` | `transition`, `make_transition`, and the defaults `always` and `noop` |
-| `sfsm/transitions.hpp` | `transitions`, the transition table |
-| `sfsm/version.hpp` | version macros and constants |
-
-## How it behaves
-
-**Arguments.** Guards and actions declare the arguments they need in the canonical order source
-state, event, target state, and may leave out any of them. All eight subsequences are accepted, a
-swapped order is not.
-
-**Guards.** A guard decides whether a transition may fire and must return exactly `bool`. It sees
-both states as `const`, so it can refuse because the target is busy without being able to change
-anything. Guards of transitions that do not fire run as well.
-
-**Actions.** An action runs when a transition fires, before the state index moves. It gets both
-states mutable, in a self transition they are the same object. Its result is ignored.
-
-**Order.** Transitions are tried in the order they are listed, so two rows may share a source state
-and an event as long as the more specific one comes first. The machine starts in the source state
-of the first transition, `reset_to_state` overrides that.
-
-**Run to completion.** A transition is never interrupted. An event dispatched by a guard or an
-action is refused, `process_event` returns false and `is_transitioning()` says why. The state index
-moves after the action returned, so an action always sees the state it is leaving.
-
-**Exceptions.** If a guard or an action throws, the machine stays in the state it was in and is
-ready to dispatch again.
-
-**Threads.** `sfsm` is a value with no synchronization, and follows the contract of the standard
-containers: concurrent readers are fine, a writer needs exclusive access. A machine shared between
-threads has to be guarded by its owner, a wrapper that does it comes later.
-
-## Tests
-
-```bash
-cmake -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-Catch2 v3 is used, taken from the system if it is installed and fetched otherwise. Every header is
-also compiled on its own to keep it self contained.
+That lands in `build/install`. Pick another prefix with `-DCMAKE_INSTALL_PREFIX=/your/prefix`, then
+point a consumer at it with `CMAKE_PREFIX_PATH` and use `find_package(sfsm REQUIRED)`.
 
 ## License
 
